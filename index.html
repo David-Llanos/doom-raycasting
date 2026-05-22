@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Doom Raycaster</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #000;
+      overflow: hidden;
+    }
+
+    #gameCanvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    #hud {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      color: #fff;
+      font-family: monospace;
+      font-size: 18px;
+    }
+
+    #health {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+    }
+
+    #ammo {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+    }
+
+    #ammo.depleted {
+      color: #f00;
+    }
+
+    #crosshair {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 20px;
+      height: 20px;
+      border: 2px solid rgba(255, 255, 255, 0.8);
+      border-radius: 50%;
+    }
+
+    #crosshair.flash {
+      background: rgba(255, 200, 0, 0.6);
+      border-color: #ff0;
+    }
+
+    #minimap {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+    }
+
+    #minimapCanvas {
+      display: block;
+    }
+
+    #overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.75);
+      color: #fff;
+      font-family: monospace;
+      text-align: center;
+    }
+
+    #overlay h1 {
+      font-size: 48px;
+      margin-bottom: 20px;
+      text-transform: uppercase;
+      letter-spacing: 4px;
+    }
+
+    #overlay p {
+      font-size: 20px;
+      margin-bottom: 10px;
+      max-width: min(90vw, 760px);
+      line-height: 1.35;
+    }
+
+    #overlay button {
+      margin-top: 20px;
+      padding: 10px 30px;
+      font-size: 18px;
+      font-family: monospace;
+      background: #c00;
+      color: #fff;
+      border: none;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+    }
+
+    #overlay button:hover {
+      background: #f00;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+
+  <div id="hud">
+    <span id="health">❤ 100</span>
+    <span id="ammo">⬡ 50</span>
+    <div id="crosshair"></div>
+  </div>
+
+  <div id="minimap">
+    <canvas id="minimapCanvas"></canvas>
+  </div>
+
+  <div id="overlay">
+    <h1>Doom Raycaster</h1>
+    <p>Navigate the maze and eliminate all enemies.</p>
+    <p>WASD / Arrow Keys to move &nbsp;|&nbsp; Mouse click or Space to shoot &nbsp;|&nbsp; M to toggle minimap</p>
+    <button id="startBtn">Start Game</button>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>

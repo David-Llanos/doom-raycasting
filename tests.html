@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Doom Raycaster — Dev Tests</title>
+  <style>
+    body {
+      font-family: monospace;
+      background: #111;
+      color: #eee;
+      padding: 20px;
+    }
+
+    h1 {
+      margin-bottom: 10px;
+      font-size: 22px;
+    }
+
+    button#runBtn {
+      padding: 8px 20px;
+      font-size: 16px;
+      font-family: monospace;
+      background: #333;
+      color: #eee;
+      border: 1px solid #555;
+      cursor: pointer;
+      margin-bottom: 20px;
+    }
+
+    button#runBtn:hover {
+      background: #444;
+    }
+
+    #results {
+      list-style: none;
+      padding: 0;
+    }
+
+    #results li {
+      padding: 4px 8px;
+      margin-bottom: 4px;
+      border-radius: 3px;
+      font-size: 14px;
+    }
+
+    #results li.pass {
+      background: #1a3a1a;
+      color: #4caf50;
+    }
+
+    #results li.fail {
+      background: #3a1a1a;
+      color: #f44336;
+    }
+
+    #summary {
+      margin-top: 16px;
+      font-size: 16px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>Doom Raycaster — Dev Test Harness</h1>
+  <button id="runBtn">Run All Tests</button>
+  <div id="hud" style="display: none;">
+    <span id="health"></span>
+    <span id="ammo"></span>
+    <span id="crosshair"></span>
+  </div>
+  <ul id="results"></ul>
+  <div id="summary"></div>
+
+  <!-- Game source (provides CONFIG and all modules) -->
+  <script src="game.js"></script>
+
+  <!-- fast-check — dev-only property testing library -->
+  <script src="https://cdn.jsdelivr.net/npm/fast-check@3/lib/bundle/fast-check.min.js"></script>
+
+  <script>
+    // -----------------------------------------------------------------------
+    // Minimal test runner
+    // -----------------------------------------------------------------------
+
+    const _tests = [];
+
+    /**
+     * Register an example-based unit test.
+     * @param {string} name  - Human-readable test name
+     * @param {Function} fn  - Test body; throw to fail, return normally to pass
+     */
+    function test(name, fn) {
+      _tests.push({ name, fn, kind: 'unit' });
+    }
+
+    /**
+     * Register a property-based test using fast-check.
+     * @param {string} name       - Human-readable property name
+     * @param {...any} args       - Arbitraries followed by the predicate function,
+     *                             exactly as you would pass to fc.property()
+     */
+    function property(name, ...args) {
+      _tests.push({
+        name,
+        fn: () => fc.assert(fc.property(...args)),
+        kind: 'property',
+      });
+    }
+
+    /**
+     * Run all registered tests and render results to the DOM.
+     */
+    function runAll() {
+      const resultsList = document.getElementById('results');
+      const summary     = document.getElementById('summary');
+      resultsList.innerHTML = '';
+      summary.textContent   = '';
+
+      let passed = 0;
+      let failed = 0;
+
+      for (const t of _tests) {
+        const li = document.createElement('li');
+        try {
+          t.fn();
+          li.className   = 'pass';
+          li.textContent = `✓ [${t.kind}] ${t.name}`;
+          passed++;
+        } catch (err) {
+          li.className   = 'fail';
+          li.textContent = `✗ [${t.kind}] ${t.name} — ${err && err.message ? err.message : err}`;
+          failed++;
+        }
+        resultsList.appendChild(li);
+      }
+
+      summary.textContent = `${passed} passed, ${failed} failed (${_tests.length} total)`;
+      summary.style.color = failed === 0 ? '#4caf50' : '#f44336';
+    }
+
+    document.getElementById('runBtn').addEventListener('click', runAll);
+    InputHandler.init();
+
+    if (!window.fc) {
+      window.fc = {
+        integer: ({ min = -100, max = 100 } = {}) => ({ sample: (i) => Math.floor(min + (i * 37 % Math.max(1, max - min + 1))) }),
+        float: ({ min = -1, max = 1 } = {}) => ({ sample: (i) => min + ((i * 53) % 1000) / 999 * (max - min) }),
+        array: (arb, { minLength = 0, maxLength = 10 } = {}) => ({
+          sample: (i) => Array.from({ length: minLength + (i % Math.max(1, maxLength - minLength + 1)) }, (_, j) => arb.sample(i + j + 1)),
+        }),
+        property: (...args) => {
+          const predicate = args.pop();
+          return () => {
+            for (let i = 0; i < 100; i++) {
+              const values = args.map((arb) => arb.sample(i));
+              if (!predicate(...values)) throw new Error(`Property failed for ${JSON.stringify(values)}`);
+            }
+          };
+        },
+        assert: (prop) => prop(),
+      };
+    }
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+
+    function assert(condition, message) {
+      if (!condition) throw new Error(message || 'Assertion failed');
+    }
+
+    function assertEqual(actual, expected, message) {
+      if (actual !== expected) throw new Error(`${message || 'Expected equality'}: expected ${expected}, got ${actual}`);
+    }
+
+    function assertClose(actual, expected, epsilon, message) {
+      if (Math.abs(actual - expected) > epsilon) {
+        throw new Error(`${message || 'Expected close values'}: expected ${expected}, got ${actual}`);
+      }
+    }
+
+    function enclosedGrid(width, height, fill = 0) {
+      const grid = Array.from({ length: height }, (_, y) =>
+        Array.from({ length: width }, (_, x) => (x === 0 || y === 0 || x === width - 1 || y === height - 1 ? 1 : fill))
+      );
+      return grid;
+    }
+
+    function simpleMap(size = 10) {
+      return MapLoader.load(enclosedGrid(size, size));
+    }
+
+    function heldInput(code) {
+      return {
+        hasFocus: () => true,
+        isHeld: (candidate) => candidate === code,
+      };
+    }
+
+    // -----------------------------------------------------------------------
+    // Unit tests
+    // -----------------------------------------------------------------------
+
+    test('InputHandler tracks held keys and clears them on blur', () => {
+      InputHandler.reset();
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' }));
+      assert(InputHandler.isHeld('KeyW'), 'KeyW should be held after keydown');
+      window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' }));
+      assert(!InputHandler.isHeld('KeyW'), 'KeyW should not be held after keyup');
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }));
+      window.dispatchEvent(new Event('blur'));
+      assert(!InputHandler.isHeld('KeyA'), 'Held keys should clear on blur');
+    });
+
+    test('InputHandler consumes mouse clicks once', () => {
+      InputHandler.reset();
+      window.dispatchEvent(new MouseEvent('mousedown'));
+      assert(InputHandler.wasClicked(), 'First wasClicked call should return true');
+      assert(!InputHandler.wasClicked(), 'Second wasClicked call should return false');
+    });
+
+    test('InputHandler.hasFocus reflects document focus', () => {
+      const original = document.hasFocus;
+      document.hasFocus = () => false;
+      try {
+        assert(!InputHandler.hasFocus(), 'hasFocus should return false when document.hasFocus is false');
+      } finally {
+        document.hasFocus = original;
+      }
+    });
+
+    test('MapLoader rejects too-small, too-large, and open-border maps', () => {
+      assertThrows(() => MapLoader.load(enclosedGrid(7, 8)), 'too narrow map should reject');
+      assertThrows(() => MapLoader.load(enclosedGrid(65, 65)), 'too large map should reject');
+      const open = enclosedGrid(8, 8);
+      open[0][3] = 0;
+      assertThrows(() => MapLoader.load(open), 'open border should reject');
+      const map = MapLoader.load(enclosedGrid(8, 8));
+      assertEqual(map.width, 8, 'accepted map width');
+      assertEqual(map.height, 8, 'accepted map height');
+    });
+
+    function assertThrows(fn, message) {
+      let threw = false;
+      try {
+        fn();
+      } catch (err) {
+        threw = true;
+      }
+      assert(threw, message);
+    }
+
+    test('Player.takeDamage clamps health to [0, 100]', () => {
+      const player = createPlayer(2.5, 2.5);
+      player.takeDamage(150);
+      assertEqual(player.health, 0, 'health should clamp to 0');
+      player.takeDamage(-200);
+      assertEqual(player.health, 100, 'health should clamp to 100');
+    });
+
+    test('Player.shoot enforces ammo and cooldown', () => {
+      const player = createPlayer(2.5, 2.5);
+      player.ammo = 0;
+      assert(!player.shoot(), 'shoot should fail with no ammo');
+      player.ammo = 5;
+      player.fireCooldown = 0.1;
+      assert(!player.shoot(), 'shoot should fail during cooldown');
+      player.fireCooldown = 0;
+      assert(player.shoot(), 'shoot should succeed when ready');
+      assertEqual(player.ammo, 4, 'successful shot decrements ammo');
+      assertEqual(player.fireCooldown, CONFIG.FIRE_RATE, 'successful shot sets cooldown');
+    });
+
+    test('TextureManager.sample returns magenta fallback for missing textures', () => {
+      const pixel = TextureManager.sample('__missing__', 0.5, 0.5);
+      assertEqual(pixel.join(','), '255,0,255,255', 'missing sample fallback');
+    });
+
+    test('TextureManager.sample reads RGBA data for loaded image data', () => {
+      TextureManager._textures.__test__ = {
+        img: document.createElement('img'),
+        imageData: new ImageData(new Uint8ClampedArray(CONFIG.TEXTURE_SIZE * CONFIG.TEXTURE_SIZE * 4), CONFIG.TEXTURE_SIZE, CONFIG.TEXTURE_SIZE),
+      };
+      const idx = (2 * CONFIG.TEXTURE_SIZE + 1) * 4;
+      TextureManager._textures.__test__.imageData.data[idx] = 10;
+      TextureManager._textures.__test__.imageData.data[idx + 1] = 20;
+      TextureManager._textures.__test__.imageData.data[idx + 2] = 30;
+      TextureManager._textures.__test__.imageData.data[idx + 3] = 255;
+      const pixel = TextureManager.sample('__test__', 1 / CONFIG.TEXTURE_SIZE, 2 / CONFIG.TEXTURE_SIZE);
+      assertEqual(pixel.join(','), '10,20,30,255', 'loaded sample');
+    });
+
+    test('Raycaster.castAll returns one ray per canvas column', () => {
+      const rays = Raycaster.castAll(createPlayer(2.5, 2.5), simpleMap(), 37, CONFIG.FOV);
+      assertEqual(rays.length, 37, 'ray count');
+    });
+
+    test('EnemyManager applies proximity damage cumulatively', () => {
+      const player = createPlayer(2, 2);
+      const manager = createEnemyManager([
+        { id: 1, startX: 2.5, startY: 2, health: 100 },
+        { id: 2, startX: 3.0, startY: 2, health: 100 },
+        { id: 3, startX: 6.0, startY: 6, health: 100 },
+      ]);
+      manager.update(0.5, player);
+      assertClose(player.health, 100 - CONFIG.ENEMY_DAMAGE, 1e-9, 'two enemies should apply cumulative half-second damage');
+    });
+
+    test('EnemyManager.getLiving excludes dead enemies', () => {
+      const manager = createEnemyManager([{ id: 1, startX: 2, startY: 2, health: 10 }]);
+      manager.enemies[0].takeDamage(10);
+      assertEqual(manager.getLiving().length, 0, 'dead enemy excluded');
+    });
+
+    test('Shooting hit test damages only centre-covered target', () => {
+      const manager = createEnemyManager([
+        { id: 1, startX: 2, startY: 2, health: 100 },
+        { id: 2, startX: 3, startY: 2, health: 100 },
+      ]);
+      manager.enemies[0].screenX = 50;
+      manager.enemies[0].spriteWidth = 20;
+      manager.enemies[0].transformY = 2;
+      manager.enemies[1].screenX = 90;
+      manager.enemies[1].spriteWidth = 10;
+      manager.enemies[1].transformY = 1;
+      const hit = manager.hitTest({ screenX: 50, distance: 5 });
+      hit.takeDamage(CONFIG.SHOT_DAMAGE);
+      assertEqual(manager.enemies[0].health, 100 - CONFIG.SHOT_DAMAGE, 'target damaged');
+      assertEqual(manager.enemies[1].health, 100, 'off-centre enemy unaffected');
+    });
+
+    test('HUD.update reflects health, ammo, flash, and depleted state', () => {
+      const player = createPlayer(2, 2);
+      player.health = 42;
+      player.ammo = 0;
+      player.muzzleFlash = 0.05;
+      HUD.update(player);
+      assertEqual(document.getElementById('health').textContent, 'HEALTH 42', 'health DOM');
+      assertEqual(document.getElementById('ammo').textContent, 'AMMO 0', 'ammo DOM');
+      assert(document.getElementById('ammo').classList.contains('depleted'), 'ammo depleted class');
+      assert(document.getElementById('crosshair').classList.contains('flash'), 'crosshair flash class');
+    });
+
+    test('StateManager terminal transitions stop the game loop', () => {
+      const game = {
+        player: createPlayer(2, 2),
+        enemyManager: createEnemyManager([{ id: 1, startX: 2, startY: 2, health: 0 }]),
+        input: { hasFocus: () => true, wasClicked: () => false, isHeld: () => false, wasMinimapToggled: () => false },
+        map: simpleMap(),
+        showMinimap: true,
+        stopped: null,
+        stopWithState(state) { this.stopped = state; StateManager.transition(state, this); },
+      };
+      StateManager.current = 'playing';
+      StateManager.update(0.016, game);
+      assertEqual(game.stopped, 'win', 'no living enemies should transition to win');
+      game.enemyManager = createEnemyManager([{ id: 1, startX: 9, startY: 9, health: 100 }]);
+      game.player.health = 0;
+      game.stopped = null;
+      StateManager.current = 'playing';
+      StateManager.update(0.016, game);
+      assertEqual(game.stopped, 'gameover', 'zero health should transition to gameover');
+    });
+
+    // -----------------------------------------------------------------------
+    // Property tests
+    // -----------------------------------------------------------------------
+
+    property('Property 1: delta-time movement scaling',
+      fc.float({ min: 0.001, max: 0.25, noNaN: true, noDefaultInfinity: true }),
+      fc.float({ min: -Math.PI, max: Math.PI, noNaN: true, noDefaultInfinity: true }),
+      (dt, angle) => {
+        const player = createPlayer(4, 4);
+        player.angle = angle;
+        player.update(dt, heldInput('KeyW'), simpleMap());
+        const distance = Math.hypot(player.x - 4, player.y - 4);
+        return Math.abs(distance - CONFIG.MOVE_SPEED * dt) < 1e-6;
+      }
+    );
+
+    property('Property 2: valid enclosed dimensions are accepted iff width and height are in [8, 64]',
+      fc.integer({ min: 1, max: 70 }),
+      fc.integer({ min: 1, max: 70 }),
+      (width, height) => {
+        const grid = enclosedGrid(width, height);
+        const valid = width >= 8 && width <= 64 && height >= 8 && height <= 64;
+        try {
+          MapLoader.load(grid);
+          return valid;
+        } catch (err) {
+          return !valid;
+        }
+      }
+    );
+
+    property('Property 3: valid-dimension maps require enclosed borders',
+      fc.integer({ min: 8, max: 20 }),
+      fc.integer({ min: 8, max: 20 }),
+      fc.integer({ min: 0, max: 3 }),
+      (width, height, side) => {
+        const grid = enclosedGrid(width, height);
+        if (side === 0) grid[0][Math.floor(width / 2)] = 0;
+        if (side === 1) grid[height - 1][Math.floor(width / 2)] = 0;
+        if (side === 2) grid[Math.floor(height / 2)][0] = 0;
+        if (side === 3) grid[Math.floor(height / 2)][width - 1] = 0;
+        try {
+          MapLoader.load(grid);
+          return false;
+        } catch (err) {
+          return true;
+        }
+      }
+    );
+
+    property('Property 4: ray count equals canvas width',
+      fc.integer({ min: 1, max: 256 }),
+      (width) => Raycaster.castAll(createPlayer(2.5, 2.5), simpleMap(), width, CONFIG.FOV).length === width
+    );
+
+    property('Property 6: projected height is floor(canvas height / distance)',
+      fc.integer({ min: 64, max: 1200 }),
+      fc.float({ min: 0.1, max: 20, noNaN: true, noDefaultInfinity: true }),
+      (height, distance) => Raycaster.projectedHeight(height, distance) === Math.floor(height / distance)
+    );
+
+    property('Property 7: texture column sampling index is in range',
+      fc.float({ min: 0, max: 0.999999, noNaN: true, noDefaultInfinity: true }),
+      (wallX) => {
+        const texCol = Math.floor(wallX * CONFIG.TEXTURE_SIZE);
+        return texCol >= 0 && texCol < CONFIG.TEXTURE_SIZE;
+      }
+    );
+
+    property('Property 8: distance darkening is monotonic and bounded',
+      fc.float({ min: 0, max: 100, noNaN: true, noDefaultInfinity: true }),
+      fc.float({ min: 0, max: 100, noNaN: true, noDefaultInfinity: true }),
+      (a, b) => {
+        const d1 = Math.min(a, b);
+        const d2 = Math.max(a, b);
+        const s1 = Renderer.darkening(d1);
+        const s2 = Renderer.darkening(d2);
+        return s1 >= s2 && s1 >= 0.1 && s1 <= 1 && s2 >= 0.1 && s2 <= 1;
+      }
+    );
+
+    property('Property 10: sprite billboard projection formula',
+      fc.float({ min: 2, max: 8, noNaN: true, noDefaultInfinity: true }),
+      fc.float({ min: -1, max: 1, noNaN: true, noDefaultInfinity: true }),
+      (depth, lateral) => {
+        const player = createPlayer(4, 4);
+        const enemy = createEnemy({ id: 1, startX: 4 + depth, startY: 4 + lateral, health: 100 });
+        const sprite = Renderer.projectEnemy(enemy, player, 320, 200);
+        if (!sprite) return false;
+        const expected = Math.floor((320 / 2) * (1 + sprite.transformX / sprite.transformY));
+        return sprite.screenX === expected;
+      }
+    );
+
+    property('Property 11: sprite sort order is back-to-front',
+      fc.array(fc.float({ min: 1, max: 10, noNaN: true, noDefaultInfinity: true }), { minLength: 1, maxLength: 20 }),
+      (depths) => {
+        const player = createPlayer(0, 0);
+        const enemies = depths.map((d, i) => createEnemy({ id: i, startX: d, startY: 0, health: 100 }));
+        const projected = Renderer.getProjectedEnemies(enemies, player, 320, 200);
+        for (let i = 1; i < projected.length; i++) {
+          if (projected[i - 1].transformY < projected[i].transformY) return false;
+        }
+        return true;
+      }
+    );
+
+    property('Property 13: enemy death removes it from living set',
+      fc.integer({ min: 1, max: 200 }),
+      (health) => {
+        const manager = createEnemyManager([{ id: 1, startX: 2, startY: 2, health }]);
+        manager.enemies[0].takeDamage(health);
+        return manager.getLiving().length === 0;
+      }
+    );
+
+    property('Property 15: shot damage is fixed',
+      fc.integer({ min: 1, max: 200 }),
+      (health) => {
+        const enemy = createEnemy({ id: 1, startX: 2, startY: 2, health });
+        enemy.takeDamage(CONFIG.SHOT_DAMAGE);
+        return enemy.health === Math.max(0, health - CONFIG.SHOT_DAMAGE);
+      }
+    );
+
+    property('Property 16: fire cooldown prevents rapid firing',
+      fc.float({ min: 0.0001, max: CONFIG.FIRE_RATE - 0.0001, noNaN: true, noDefaultInfinity: true }),
+      (cooldown) => {
+        const player = createPlayer(2, 2);
+        player.shoot();
+        player.fireCooldown = cooldown;
+        const ammo = player.ammo;
+        return !player.shoot() && player.ammo === ammo;
+      }
+    );
+
+    property('Property 17: ammo depletion prevents firing',
+      fc.integer({ min: 1, max: 100 }),
+      (attempts) => {
+        const player = createPlayer(2, 2);
+        player.ammo = 0;
+        for (let i = 0; i < attempts; i++) {
+          if (player.shoot() || player.ammo !== 0) return false;
+        }
+        return true;
+      }
+    );
+
+    property('Property 18: HUD values reflect player state',
+      fc.integer({ min: 0, max: 100 }),
+      fc.integer({ min: 0, max: 50 }),
+      (healthValue, ammoValue) => {
+        const player = createPlayer(2, 2);
+        player.health = healthValue;
+        player.ammo = ammoValue;
+        HUD.update(player);
+        return document.getElementById('health').textContent === `HEALTH ${healthValue}` &&
+          document.getElementById('ammo').textContent === `AMMO ${ammoValue}`;
+      }
+    );
+
+    property('Property 20: minimap size does not exceed 20% of canvas width',
+      fc.integer({ min: 1, max: 3000 }),
+      (width) => Renderer.minimapSize(simpleMap(), width) <= Math.floor(width * 0.2)
+    );
+
+    property('Property 21: proximity damage is proportional to enemy count and time',
+      fc.integer({ min: 0, max: 10 }),
+      fc.float({ min: 0, max: 2, noNaN: true, noDefaultInfinity: true }),
+      (count, dt) => {
+        const player = createPlayer(2, 2);
+        const defs = Array.from({ length: count }, (_, i) => ({ id: i, startX: 2.5, startY: 2, health: 100 }));
+        const manager = createEnemyManager(defs);
+        manager.update(dt, player);
+        const expected = Math.max(0, 100 - count * CONFIG.ENEMY_DAMAGE * dt);
+        return Math.abs(player.health - expected) < 1e-6;
+      }
+    );
+
+    property('Property 22: player health stays clamped',
+      fc.array(fc.integer({ min: 0, max: 500 }), { minLength: 1, maxLength: 40 }),
+      (amounts) => {
+        const player = createPlayer(2, 2);
+        for (const amount of amounts) {
+          player.takeDamage(amount);
+          if (player.health < 0 || player.health > 100) return false;
+        }
+        return true;
+      }
+    );
+
+    if (window.location.hash === '#autorun') {
+      setTimeout(runAll, 0);
+    }
+
+  </script>
+</body>
+</html>
