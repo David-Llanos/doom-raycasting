@@ -107,6 +107,9 @@ const InputHandler = {
     this._keys = {};
     this._mouseClicked = false;
     this._minimapToggled = false;
+    this._touchMoveY = 0;
+    this._touchRotate = 0;
+    this._touchFired = false;
   },
 
   isHeld(code) {
@@ -127,6 +130,25 @@ const InputHandler = {
 
   hasFocus() {
     return typeof document === 'undefined' ? true : document.hasFocus();
+  },
+
+  // Touch input — written by TouchControls, read by Player.update
+  _touchMoveY:  0,   // -1 (backward) to +1 (forward)
+  _touchRotate: 0,   // -1 (left) to +1 (right), normalised
+  _touchFired:  false,
+
+  getTouchMove() {
+    return { x: 0, y: this._touchMoveY };
+  },
+
+  getTouchRotate() {
+    return this._touchRotate;
+  },
+
+  wasTouchFired() {
+    const fired = this._touchFired;
+    this._touchFired = false;
+    return fired;
   },
 };
 
@@ -232,6 +254,22 @@ function createPlayer(x, y) {
       if (input.isHeld('KeyS') || input.isHeld('ArrowDown')) {
         moveX -= this.dirX * moveSpeed;
         moveY -= this.dirY * moveSpeed;
+      }
+
+      // Touch movement (joystick forward/back)
+      const touchMove = input.getTouchMove ? input.getTouchMove() : { x: 0, y: 0 };
+      if (touchMove.y !== 0) {
+        moveX += this.dirX * touchMove.y * CONFIG.MOVE_SPEED * dt;
+        moveY += this.dirY * touchMove.y * CONFIG.MOVE_SPEED * dt;
+      }
+
+      // Touch rotation (joystick left/right OR look-zone swipe)
+      const touchRot = input.getTouchRotate ? input.getTouchRotate() : 0;
+      if (touchRot !== 0) {
+        this.angle += touchRot * CONFIG.ROT_SPEED * dt;
+        // Reset the accumulated look-zone delta after consuming it
+        if (input._touchRotate !== undefined) input._touchRotate = 0;
+        updatePlayerVectors(this);
       }
 
       if (moveX !== 0) {
@@ -703,7 +741,7 @@ const StateManager = {
 
     // Frame-level input actions live here so they are checked once per update.
     if (game.input.wasMinimapToggled()) game.showMinimap = !game.showMinimap;
-    if (game.input.wasClicked() || game.input.isHeld('Space')) game.tryShoot();
+    if (game.input.wasClicked() || game.input.isHeld('Space') || game.input.wasTouchFired()) game.tryShoot();
 
     if (game.player.health <= 0) game.stopWithState('gameover');
     if (game.enemyManager.getLiving().length === 0) game.stopWithState('win');
@@ -794,6 +832,121 @@ function makeEnemyDataUri() {
   return canvas.toDataURL();
 }
 
+// ---------------------------------------------------------------------------
+// TouchControls — virtual joystick + look zone for touch devices
+// ---------------------------------------------------------------------------
+const TouchControls = {
+  _input: null,
+  _joystickOrigin: null,
+  _joystickTouchId: null,
+  _lookTouchId: null,
+  _lookStartPos: null,
+  _OUTER_RADIUS: 60,       // px — half of the 120px outer ring
+  _LOOK_SENSITIVITY: 0.004, // radians of rotation per pixel dragged
+
+  init(inputHandler) {
+    this._input = inputHandler;
+
+    // Only activate on touch-capable devices
+    if (!navigator.maxTouchPoints || navigator.maxTouchPoints === 0) return;
+
+    const touchEl = document.getElementById('touch-controls');
+    if (touchEl) touchEl.style.display = 'block';
+
+    const joystickZone = document.getElementById('joystick-zone');
+    const lookZone     = document.getElementById('look-zone');
+    if (!joystickZone || !lookZone) return;
+
+    // --- Joystick ---
+    joystickZone.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (this._joystickTouchId !== null) return;
+      const t = e.changedTouches[0];
+      this._joystickTouchId = t.identifier;
+      this._joystickOrigin  = { x: t.clientX, y: t.clientY };
+      this._updateKnob(0, 0);
+    }, { passive: false });
+
+    joystickZone.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      for (const t of e.changedTouches) {
+        if (t.identifier !== this._joystickTouchId) continue;
+        const dx = t.clientX - this._joystickOrigin.x;
+        const dy = t.clientY - this._joystickOrigin.y;
+        const normX = Math.max(-1, Math.min(1, dx / this._OUTER_RADIUS));
+        const normY = Math.max(-1, Math.min(1, dy / this._OUTER_RADIUS));
+        // normY: drag up (negative dy) = forward (+1), drag down = backward (-1)
+        this._input._touchMoveY  = -normY;
+        this._input._touchRotate =  normX;
+        this._updateKnob(dx, dy);
+      }
+    }, { passive: false });
+
+    const endJoystick = (e) => {
+      for (const t of e.changedTouches) {
+        if (t.identifier !== this._joystickTouchId) continue;
+        this._joystickTouchId    = null;
+        this._joystickOrigin     = null;
+        this._input._touchMoveY  = 0;
+        this._input._touchRotate = 0;
+        this._updateKnob(0, 0);
+      }
+    };
+    joystickZone.addEventListener('touchend',    endJoystick, { passive: false });
+    joystickZone.addEventListener('touchcancel', endJoystick, { passive: false });
+
+    // --- Look zone ---
+    lookZone.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (this._lookTouchId !== null) return;
+      const t = e.changedTouches[0];
+      this._lookTouchId  = t.identifier;
+      this._lookStartPos = { x: t.clientX, y: t.clientY, time: Date.now() };
+    }, { passive: false });
+
+    lookZone.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      for (const t of e.changedTouches) {
+        if (t.identifier !== this._lookTouchId) continue;
+        const dx = t.clientX - this._lookStartPos.x;
+        // Accumulate rotation directly into the input handler as a delta.
+        // Player.update reads _touchRotate once per frame and resets it.
+        this._input._touchRotate += dx * this._LOOK_SENSITIVITY;
+        // Update origin so next move gives an incremental delta, not total.
+        this._lookStartPos.x = t.clientX;
+        this._lookStartPos.y = t.clientY;
+      }
+    }, { passive: false });
+
+    const endLook = (e) => {
+      for (const t of e.changedTouches) {
+        if (t.identifier !== this._lookTouchId) continue;
+        // Tap detection: short duration + small movement = shoot
+        const elapsed = Date.now() - this._lookStartPos.time;
+        const dx = t.clientX - this._lookStartPos.x;
+        const dy = t.clientY - this._lookStartPos.y;
+        const moved = Math.hypot(dx, dy);
+        if (elapsed < 200 && moved < 10) {
+          this._input._touchFired = true;
+        }
+        this._lookTouchId  = null;
+        this._lookStartPos = null;
+      }
+    };
+    lookZone.addEventListener('touchend',    endLook, { passive: false });
+    lookZone.addEventListener('touchcancel', endLook, { passive: false });
+  },
+
+  _updateKnob(dx, dy) {
+    const knob = document.getElementById('joystick-knob');
+    if (!knob) return;
+    const r = this._OUTER_RADIUS;
+    const clampedX = Math.max(-r, Math.min(r, dx));
+    const clampedY = Math.max(-r, Math.min(r, dy));
+    knob.style.transform = `translate(calc(-50% + ${clampedX}px), calc(-50% + ${clampedY}px))`;
+  },
+};
+
 const Game = {
   // Game is the composition root: it owns real DOM/canvas objects and wires
   // together the otherwise small subsystems above.
@@ -840,6 +993,7 @@ const Game = {
 
     this.loadTextures();
     this.resetWorld();
+    TouchControls.init(this.input);
     this.state.transition('start', this);
     this.loop = this.loop.bind(this);
     this.rafId = requestAnimationFrame(this.loop);

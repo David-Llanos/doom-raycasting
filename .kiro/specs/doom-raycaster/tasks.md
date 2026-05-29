@@ -346,6 +346,46 @@ Property-based tests use [fast-check](https://github.com/dubzzz/fast-check) load
   - Verify the minimap toggle works with the `M` key (Requirement 10.5)
   - Verify the restart option works without a page reload (Requirement 11.5)
 
+- [ ] 20. Implement `TouchControls` module
+  - [ ] 20.1 Add touch control HTML and CSS
+    - Add `<div id="touch-controls">` to `index.html` containing `<div id="joystick-zone">`, `<div id="joystick-outer">`, `<div id="joystick-knob">`, and `<div id="look-zone">`
+    - Style `#touch-controls` as `position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none`
+    - Style `#joystick-zone` as left 50% of viewport with `pointer-events: auto`
+    - Style `#joystick-outer` as a fixed circle (120px diameter) in the bottom-left, semi-transparent
+    - Style `#joystick-knob` as a smaller circle (50px diameter) centred inside the outer ring
+    - Style `#look-zone` as right 50% of viewport with `pointer-events: auto`, fully transparent
+    - Hide all touch controls by default; show only when `navigator.maxTouchPoints > 0`
+    - _Requirements: 13.1, 13.7_
+
+  - [~] 20.2 Implement `TouchControls.init(inputHandler, canvas)`
+    - Detect touch capability via `navigator.maxTouchPoints > 0`; return early and hide `#touch-controls` if not touch-capable
+    - Track `joystickTouchId`, `lookTouchId`, `joystickOrigin`, `lookStartPos` as module-level state
+    - Attach `touchstart`, `touchmove`, `touchend`, `touchcancel` listeners on `#joystick-zone` and `#look-zone`
+    - On joystick `touchstart`: record `joystickTouchId` and `joystickOrigin = { x, y }`
+    - On joystick `touchmove`: compute `dx`, `dy` from origin; normalise to `[-1, 1]` using outer ring radius (60px); clamp; update `inputHandler._touchMoveY` (forward/back) and `inputHandler._touchRotate` (left/right); translate `#joystick-knob` CSS
+    - On joystick `touchend`/`touchcancel`: reset `joystickTouchId`, zero out `_touchMoveY` and `_touchRotate`, re-centre `#joystick-knob`
+    - On look zone `touchstart`: record `lookTouchId` and `lookStartPos = { x, y, time: Date.now() }`
+    - On look zone `touchmove`: compute horizontal delta from `lookStartPos`; update `inputHandler._touchRotate` proportionally (sensitivity: 0.005 rad/px); update `lookStartPos` to current position for incremental delta
+    - On look zone `touchend`: if `elapsed < 200ms` and `movement < 10px`, set `inputHandler._touchFired = true`; reset `lookTouchId`
+    - _Requirements: 13.2, 13.3, 13.4, 13.5, 13.6, 13.8_
+
+  - [~] 20.3 Extend `InputHandler` with touch input methods
+    - Add `_touchMoveY`, `_touchRotate`, `_touchFired` fields initialised to `0`, `0`, `false`
+    - Add `getTouchMove()` returning `{ x: 0, y: this._touchMoveY }`
+    - Add `getTouchRotate()` returning `this._touchRotate`
+    - Add `wasTouchFired()` returning `this._touchFired` and clearing it to `false`
+    - _Requirements: 13.8_
+
+  - [~] 20.4 Integrate touch input into `Player.update`
+    - After processing keyboard input, read `input.getTouchMove()` and `input.getTouchRotate()`
+    - Add touch move forward/back: `moveX += dirX * touchMove.y * MOVE_SPEED * dt`, `moveY += dirY * touchMove.y * MOVE_SPEED * dt`
+    - Add touch rotation: `angle += touchRotate * ROT_SPEED * dt`; recompute `dirX`, `dirY`, `planeX`, `planeY`
+    - _Requirements: 13.2, 13.3_
+
+  - [~] 20.5 Integrate touch fire into the shooting system
+    - In the game loop (or shooting update), check `input.wasTouchFired()` in addition to `input.wasClicked()` and `input.isHeld('Space')`
+    - _Requirements: 13.5_
+
 ---
 
 ## Notes

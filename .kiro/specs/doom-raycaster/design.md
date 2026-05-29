@@ -29,7 +29,8 @@ All JavaScript lives in one or a small number of plain `.js` files loaded via `<
 
 ```
 Game                    — owns the game loop, wires subsystems together
-├── InputHandler        — keyboard + mouse state
+├── InputHandler        — keyboard + mouse state + touch input aggregation
+├── TouchControls       — touch event handling, joystick + look zone (mobile only)
 ├── MapLoader           — parses and validates the 2D map grid
 ├── Player              — position, direction, health, ammo
 ├── EnemyManager        — list of Enemy instances, proximity damage
@@ -68,20 +69,77 @@ Delta time is capped at 100 ms to prevent large jumps after tab switches or debu
 
 ### InputHandler
 
-Maintains a live snapshot of which keys are currently held and whether a mouse click occurred this frame.
+Maintains a live snapshot of which keys are currently held and whether a mouse click occurred this frame. Also aggregates touch input from `TouchControls` into the same interface so all other subsystems remain unchanged.
 
 ```js
 // Internal state
 const keys = {};          // { 'KeyW': true, 'Space': false, … }
 let mouseClicked = false; // consumed once per frame
 
+// Touch-injected virtual axes (set each frame by TouchControls)
+InputHandler._touchMoveX  = 0;  // -1 (back) to +1 (forward)
+InputHandler._touchMoveY  = 0;  // unused (strafing not implemented)
+InputHandler._touchRotate = 0;  // -1 (left) to +1 (right)
+InputHandler._touchFired  = false;
+
 // Public API
 InputHandler.isHeld(code)       // → boolean
 InputHandler.wasClicked()       // → boolean (clears flag)
 InputHandler.hasFocus()         // → boolean (document has focus)
+InputHandler.getTouchMove()     // → { x, y } normalised [-1, 1]
+InputHandler.getTouchRotate()   // → number normalised [-1, 1]
+InputHandler.wasTouchFired()    // → boolean (clears flag)
 ```
 
 Listens to `keydown`, `keyup`, `mousedown`, and `blur` on `window`.
+
+---
+
+### TouchControls
+
+Handles all touch events and writes normalised values into `InputHandler`. Only instantiated when `navigator.maxTouchPoints > 0`.
+
+```js
+const TouchControls = {
+  init(inputHandler, canvas) { … },
+  // Renders joystick ring + knob into #touch-controls overlay div
+  // Tracks two independent touch IDs: one for joystick, one for look zone
+  // On each touchmove: updates inputHandler._touchMoveX, _touchRotate
+  // On tap in look zone: sets inputHandler._touchFired = true
+}
+```
+
+**Layout:**
+- `#touch-controls` — `position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none` — contains all touch UI
+- `#joystick-zone` — left 50% of viewport, `pointer-events: auto`
+- `#joystick-outer` — fixed circle, bottom-left, rendered via CSS
+- `#joystick-knob` — inner circle, translated by touch delta clamped to outer radius
+- `#look-zone` — right 50% of viewport, `pointer-events: auto`, transparent
+
+**Touch ID tracking:**
+```js
+let joystickTouchId = null;   // touch controlling the joystick
+let lookTouchId     = null;   // touch controlling look/shoot
+let joystickOrigin  = null;   // { x, y } where joystick touch started
+let lookStartPos    = null;   // { x, y, time } for tap detection
+```
+
+**Joystick normalisation:**
+```
+dx = touch.clientX - joystickOrigin.x
+dy = touch.clientY - joystickOrigin.y
+dist = Math.sqrt(dx*dx + dy*dy)
+maxRadius = joystickOuter.radius (e.g. 60px)
+normX = clamp(dx / maxRadius, -1, 1)   // rotation: left/right
+normY = clamp(-dy / maxRadius, -1, 1)  // movement: up = forward
+```
+
+**Tap detection (look zone):**
+```
+elapsed = Date.now() - lookStartPos.time
+moved   = distance(current, lookStartPos) < 10px
+if elapsed < 200ms && moved: fire shot
+```
 
 ---
 

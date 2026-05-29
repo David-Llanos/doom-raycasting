@@ -122,6 +122,56 @@
     #overlay button:hover {
       background: #f00;
     }
+
+    /* Touch controls */
+    #touch-controls {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    #joystick-zone {
+      position: absolute;
+      left: 0; top: 0;
+      width: 50%; height: 100%;
+      pointer-events: auto;
+    }
+
+    #look-zone {
+      position: absolute;
+      right: 0; top: 0;
+      width: 50%; height: 100%;
+      pointer-events: auto;
+    }
+
+    #joystick-outer {
+      position: absolute;
+      bottom: 80px;
+      left: 60px;
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      border: 3px solid rgba(255,255,255,0.35);
+      background: rgba(255,255,255,0.08);
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #joystick-knob {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.45);
+      pointer-events: none;
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      transition: transform 0.05s;
+    }
   </style>
 </head>
 <body>
@@ -142,6 +192,15 @@
     <p>Navigate the maze and eliminate all enemies.</p>
     <p>WASD / Arrow Keys to move &nbsp;|&nbsp; Mouse click or Space to shoot &nbsp;|&nbsp; M to toggle minimap</p>
     <button id="startBtn">Start Game</button>
+  </div>
+
+  <!-- Touch controls — shown only on touch-capable devices via JS -->
+  <div id="touch-controls" style="display:none">
+    <div id="joystick-zone"></div>
+    <div id="joystick-outer">
+      <div id="joystick-knob"></div>
+    </div>
+    <div id="look-zone"></div>
   </div>
 
   <script src="game.js"></script>

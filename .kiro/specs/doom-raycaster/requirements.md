@@ -190,3 +190,20 @@ A Doom-inspired first-person raycasting game that runs entirely in the browser u
 2. THE Engine SHALL apply damage independently for each Enemy within range, so that multiple nearby Enemies deal cumulative damage.
 3. WHEN the Player moves out of range of all Enemies, THE Engine SHALL stop applying proximity damage.
 4. THE Engine SHALL clamp the Player's health to a minimum of 0 and a maximum of 100 at all times.
+
+---
+
+### Requirement 13: Mobile Touch Controls
+
+**User Story:** As a mobile player, I want touch controls on my phone or tablet, so that I can play the game without a keyboard or mouse.
+
+#### Acceptance Criteria
+
+1. WHEN `navigator.maxTouchPoints > 0`, THE Engine SHALL render a virtual joystick in the bottom-left quadrant of the viewport and a look/shoot zone covering the right half of the viewport.
+2. THE Engine SHALL implement the virtual joystick as a fixed outer ring with a draggable inner knob; dragging the knob forward/backward SHALL move the player forward/backward, and dragging left/right SHALL rotate the player left/right.
+3. THE Engine SHALL scale joystick input by Delta Time using the same `MOVE_SPEED` and `ROT_SPEED` constants as keyboard input, so that movement speed is identical on both input methods.
+4. WHEN a touch begins in the right half of the viewport, THE Engine SHALL record the touch start position; subsequent movement of that touch SHALL rotate the player proportionally to the horizontal drag delta.
+5. WHEN a tap (touch start and end with less than 200 ms elapsed and less than 10 px movement) occurs in the right half of the viewport, THE Engine SHALL fire a shot, subject to the same fire-rate and ammo constraints as Requirement 8.
+6. THE Engine SHALL support simultaneous joystick and look-zone touches (multi-touch) so that the player can move and look at the same time.
+7. WHEN the device is not touch-capable (`navigator.maxTouchPoints === 0`), THE Engine SHALL NOT render the touch control overlay elements.
+8. THE Engine SHALL feed touch input through the same `InputHandler` interface used by keyboard/mouse input so that no other game subsystem requires modification.
