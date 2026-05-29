@@ -13,31 +13,38 @@
 // in map units per second, angles are radians unless the name says FOV, and
 // timings are seconds. Map units line up with cells in DEFAULT_MAP below.
 const CONFIG = {
-  // Horizontal field of view in degrees. Wider values feel faster but can
-  // distort the edges; the requirements allow 45-120 and default to 66.
-  FOV:              66,
-  // Player walking speed, in map cells per second.
+  // Horizontal field of view in degrees. Range: [45, 120]. Default: 66.
+  // Wider feels faster but distorts edges; narrower feels like a sniper scope.
+  FOV:              100,
+  // Player walking speed in map cells per second. Range: [1.0, 10.0]. Default: 3.0.
+  // Values above 5 can cause the player to clip through thin walls.
   MOVE_SPEED:       3.0,
-  // Player turn speed, in radians per second.
-  ROT_SPEED:        2.5,
-  // Minimum wall clearance. Raising this makes the player feel "larger".
+  // Player turn speed in radians per second. Range: [0.5, 6.0]. Default: 2.5.
+  ROT_SPEED:        0.5,
+  // Minimum distance from any wall face, in map units. Range: [0.1, 0.4]. Default: 0.2.
+  // Raising this makes the player feel "larger" and prevents wall-clipping.
   PLAYER_RADIUS:    0.2,
-  // Damage per second from each enemy inside ENEMY_RANGE.
+  // Health lost per second for each enemy within ENEMY_RANGE. Range: [1, 50]. Default: 10.
   ENEMY_DAMAGE:     10,
-  // Distance, in map cells, at which enemies start damaging the player.
+  // Distance in map cells at which an enemy starts dealing damage. Range: [0.5, 5.0]. Default: 1.5.
   ENEMY_RANGE:      1.5,
-  // Damage per successful shot. Current value kills a 100 HP enemy in 3 hits.
+  // Health removed from an enemy per successful shot. Range: [1, 100]. Default: 34.
+  // 34 means 3 shots to kill a 100 HP enemy.
   SHOT_DAMAGE:      34,
-  // Seconds between shots.
+  // Minimum seconds between consecutive shots. Range: [0.1, 2.0]. Default: 0.5.
   FIRE_RATE:        0.5,
-  // Seconds the crosshair muzzle-flash class remains active after firing.
+  // Seconds the crosshair muzzle-flash effect stays visible. Range: [0.05, 0.5]. Default: 0.1.
   MUZZLE_FLASH_DUR: 0.1,
+  // Player starting health. Range: [1, 100]. Default: 100.
   STARTING_HEALTH:  100,
+  // Player starting ammo count. Range: [1, 999]. Default: 50.
   STARTING_AMMO:    50,
-  // Procedural textures are square and sampled as TEXTURE_SIZE x TEXTURE_SIZE.
+  // Texture resolution in pixels (width and height). Range: [16, 256], must be power of 2. Default: 64.
   TEXTURE_SIZE:     64,
-  // Base minimap cell size before it is scaled down to fit the viewport.
+  // Pixels per map cell on the minimap. Range: [2, 16]. Default: 6.
+  // Larger values make the minimap bigger; capped to 20% of canvas width at runtime.
   MINIMAP_CELL_PX:  6,
+  // Controls how quickly walls darken with distance. Range: [1.0, 20.0]. Default: 5.0.
   // Larger values keep distant walls brighter; smaller values darken sooner.
   DARKEN_FACTOR:    5.0,
 };
