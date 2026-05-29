@@ -21,6 +21,11 @@ const CONFIG = {
   MOVE_SPEED:       3.0,
   // Player turn speed in radians per second. Range: [0.5, 6.0]. Default: 2.5.
   ROT_SPEED:        0.5,
+  // Acceleration/deceleration for keyboard movement (units/s²). Higher = snappier.
+  MOVE_ACCEL:       12.0,
+  MOVE_DECEL:       8.0,
+  // Mouse-look sensitivity (radians per pixel of mouse movement).
+  MOUSE_SENSITIVITY: 0.003,
   // Minimum distance from any wall face, in map units. Range: [0.1, 0.4]. Default: 0.2.
   // Raising this makes the player feel "larger" and prevents wall-clipping.
   PLAYER_RADIUS:    0.2,
@@ -82,6 +87,9 @@ const InputHandler = {
   // M is also edge-triggered so holding M does not rapidly flicker the minimap.
   _minimapToggled: false,
   _inited: false,
+  // Mouse-look: accumulated horizontal mouse delta since last frame
+  _mouseDeltaX: 0,
+  _pointerLocked: false,
 
   init() {
     // Tests load this file too; _inited prevents duplicate listeners.
@@ -97,6 +105,14 @@ const InputHandler = {
     });
     window.addEventListener('mousedown', () => {
       this._mouseClicked = true;
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (document.pointerLockElement) {
+        this._mouseDeltaX += e.movementX;
+      }
+    });
+    document.addEventListener('pointerlockchange', () => {
+      this._pointerLocked = !!document.pointerLockElement;
     });
     window.addEventListener('blur', () => {
       this._keys = {};
@@ -130,6 +146,12 @@ const InputHandler = {
 
   hasFocus() {
     return typeof document === 'undefined' ? true : document.hasFocus();
+  },
+
+  consumeMouseDeltaX() {
+    const dx = this._mouseDeltaX;
+    this._mouseDeltaX = 0;
+    return dx;
   },
 
   // Touch input — written by TouchControls, read by Player.update
@@ -231,30 +253,46 @@ function createPlayer(x, y) {
       return true;
     },
 
+    // Velocity for smooth acceleration/deceleration
+    velocity: 0,
+
     update(dt, input, map) {
       // Timers tick even if the window loses focus. Movement does not.
       this.fireCooldown = Math.max(0, this.fireCooldown - dt);
       this.muzzleFlash = Math.max(0, this.muzzleFlash - dt);
       if (!input.hasFocus()) return;
 
+      // --- Rotation ---
+      // Mouse-look (pointer lock) gives analog rotation
+      const mouseDX = input.consumeMouseDeltaX ? input.consumeMouseDeltaX() : 0;
+      if (mouseDX !== 0) {
+        this.angle += mouseDX * CONFIG.MOUSE_SENSITIVITY;
+      }
+      // Keyboard rotation still works as fallback
       const rotSpeed = CONFIG.ROT_SPEED * dt;
       if (input.isHeld('KeyA') || input.isHeld('ArrowLeft')) this.angle -= rotSpeed;
       if (input.isHeld('KeyD') || input.isHeld('ArrowRight')) this.angle += rotSpeed;
       updatePlayerVectors(this);
 
-      const moveSpeed = CONFIG.MOVE_SPEED * dt;
-      let moveX = 0;
-      let moveY = 0;
-      // Movement is relative to the direction vector. To add strafing later,
-      // use the camera plane vector here for left/right translation.
-      if (input.isHeld('KeyW') || input.isHeld('ArrowUp')) {
-        moveX += this.dirX * moveSpeed;
-        moveY += this.dirY * moveSpeed;
+      // --- Movement with acceleration/deceleration ---
+      let targetSpeed = 0;
+      if (input.isHeld('KeyW') || input.isHeld('ArrowUp')) targetSpeed = 1;
+      else if (input.isHeld('KeyS') || input.isHeld('ArrowDown')) targetSpeed = -1;
+
+      if (targetSpeed !== 0) {
+        // Accelerate toward target
+        const accel = CONFIG.MOVE_ACCEL * dt;
+        if (targetSpeed > 0) this.velocity = Math.min(1, this.velocity + accel);
+        else this.velocity = Math.max(-1, this.velocity - accel);
+      } else {
+        // Decelerate toward zero
+        const decel = CONFIG.MOVE_DECEL * dt;
+        if (this.velocity > 0) this.velocity = Math.max(0, this.velocity - decel);
+        else if (this.velocity < 0) this.velocity = Math.min(0, this.velocity + decel);
       }
-      if (input.isHeld('KeyS') || input.isHeld('ArrowDown')) {
-        moveX -= this.dirX * moveSpeed;
-        moveY -= this.dirY * moveSpeed;
-      }
+
+      let moveX = this.dirX * this.velocity * CONFIG.MOVE_SPEED * dt;
+      let moveY = this.dirY * this.velocity * CONFIG.MOVE_SPEED * dt;
 
       // Touch movement (joystick forward/back)
       const touchMove = input.getTouchMove ? input.getTouchMove() : { x: 0, y: 0 };
@@ -267,7 +305,6 @@ function createPlayer(x, y) {
       const touchRot = input.getTouchRotate ? input.getTouchRotate() : 0;
       if (touchRot !== 0) {
         this.angle += touchRot * CONFIG.ROT_SPEED * dt;
-        // Reset the accumulated look-zone delta after consuming it
         if (input._touchRotate !== undefined) input._touchRotate = 0;
         updatePlayerVectors(this);
       }
@@ -1039,6 +1076,10 @@ const Game = {
     this.resetWorld();
     this.state.transition('playing', this);
     this.lastTime = performance.now();
+    // Request pointer lock for mouse-look on desktop
+    if (this.canvas && !navigator.maxTouchPoints) {
+      this.canvas.requestPointerLock?.();
+    }
     if (this.rafId === null) this.rafId = requestAnimationFrame(this.loop);
   },
 
