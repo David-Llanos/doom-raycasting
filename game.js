@@ -704,6 +704,8 @@ const StateManager = {
     if (!overlay) return;
 
     overlay.style.display = to === 'playing' ? 'none' : 'flex';
+    const touchEl = document.getElementById('touch-controls');
+    if (touchEl) touchEl.style.display = to === 'playing' ? 'block' : 'none';
     const titles = {
       start: 'Doom Raycaster',
       gameover: 'Game Over',
@@ -730,8 +732,8 @@ const StateManager = {
   update(dt, game) {
     this._game = game;
     if (this.current === 'start') {
-      // Start can be triggered with either mouse click or Enter.
-      if (game.input.wasClicked() || game.input.isHeld('Enter')) game.start();
+      // Start can be triggered with mouse click, Enter, or touch tap.
+      if (game.input.wasClicked() || game.input.isHeld('Enter') || game.input.wasTouchFired()) game.start();
       return;
     }
     if (this.current !== 'playing') return;
